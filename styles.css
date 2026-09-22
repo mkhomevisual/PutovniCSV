@@ -387,3 +387,116 @@ h1 { margin: 0; font-size: 17px; letter-spacing: -0.02em; }
   .topbar { gap: 12px; }
   .welcome-card { top: 50%; }
 }
+
+/* Minimal technical refinement */
+.brand-block { gap: 12px; }
+
+.brand-mark {
+  display: block;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f6f0e7;
+  object-fit: cover;
+}
+
+.brand-copy { min-width: 0; }
+
+.brand-copy h1 {
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 720;
+}
+
+.brand-block p { max-width: 290px; }
+
+.toolbar { gap: 10px; }
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f5f6f3;
+}
+
+.toolbar-group .button,
+.toolbar-group .icon-button {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.toolbar-group .button:hover:not(:disabled),
+.toolbar-group .icon-button:hover:not(:disabled) {
+  border-color: #aeb7ab;
+  background: #eef1ec;
+}
+
+.history-group { gap: 3px; }
+
+.search-box svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.6;
+}
+
+.document-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.info-label {
+  color: #8a9189;
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+}
+
+.document-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+#dirtyLabel {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.issue-button:not(.has-issues) { display: none; }
+
+.data-grid tbody tr:hover td { background: #fbfcfa; }
+.data-grid tbody tr:hover th { background: #ecefe9; }
+
+.data-grid tbody th {
+  box-shadow: 3px 0 7px rgba(32, 45, 35, 0.04);
+}
+
+.data-grid td:focus-within {
+  z-index: 2;
+  background: #fff !important;
+  box-shadow: inset 0 0 0 2px #6d9278 !important;
+}
+
+.local-note { white-space: nowrap; }
+
+.local-note > span {
+  margin-right: 4px;
+  color: var(--green);
+  font-size: 7px;
+}
+
+@media (max-width: 1180px) {
+  .toolbar { flex-wrap: wrap; }
+  .search-box { order: 10; width: 100%; }
+}

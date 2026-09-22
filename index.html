@@ -3,46 +3,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PP CSV Editor</title>
+  <title>Putovní pražírna · CSV Editor</title>
+  <link rel="icon" href="assets/putovni-prazirna-logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-shell" id="appShell">
     <header class="topbar">
       <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true">PP</div>
-        <div>
-          <h1>PP CSV Editor</h1>
+        <img class="brand-mark" src="assets/putovni-prazirna-logo.svg" alt="">
+        <div class="brand-copy">
+          <h1>Putovní pražírna · CSV Editor</h1>
           <p id="fileSummary">Žádný soubor není otevřený</p>
         </div>
       </div>
 
       <div class="toolbar" role="toolbar" aria-label="Hlavní nástroje">
-        <button class="button" id="openButton" type="button">
-          <span aria-hidden="true">↻</span> Načíst znovu
-        </button>
+        <div class="toolbar-group" role="group" aria-label="Práce s řádky">
+          <button class="button" id="openButton" type="button">
+            <span aria-hidden="true">↻</span>
+            <span>Načíst znovu</span>
+          </button>
+          <button class="button" id="addRowButton" type="button" disabled>
+            <span aria-hidden="true">＋</span>
+            <span>Přidat řádek</span>
+          </button>
+        </div>
         <label class="search-box" for="searchInput">
-          <span aria-hidden="true">⌕</span>
+          <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5"></circle><path d="m12.5 12.5 4 4"></path></svg>
           <input id="searchInput" type="search" placeholder="Hledat ve všech buňkách" disabled>
-          <kbd>⌘F</kbd>
         </label>
-        <button class="button" id="addRowButton" type="button" disabled>＋ Přidat řádek</button>
-        <button class="icon-button" id="undoButton" type="button" title="Zpět (⌘Z)" aria-label="Zpět" disabled>↶</button>
-        <button class="icon-button" id="redoButton" type="button" title="Znovu (⌘⇧Z)" aria-label="Znovu" disabled>↷</button>
-        <button class="button primary" id="saveButton" type="button" disabled>Uložit CSV</button>
+        <div class="toolbar-group history-group" role="group" aria-label="Historie změn">
+          <button class="icon-button" id="undoButton" type="button" title="Zpět (⌘Z)" aria-label="Zpět" disabled>↶</button>
+          <button class="icon-button" id="redoButton" type="button" title="Znovu (⌘⇧Z)" aria-label="Znovu" disabled>↷</button>
+        </div>
+        <button class="button primary" id="saveButton" type="button" disabled>Uložit změny</button>
       </div>
     </header>
 
     <section class="info-strip" aria-label="Informace o dokumentu">
       <div class="document-name">
         <span class="status-dot" id="dirtyDot" aria-hidden="true"></span>
-        <strong id="fileName">Bez souboru</strong>
-        <span id="dirtyLabel">—</span>
+        <div class="document-copy">
+          <span class="info-label">HLAVNÍ PŘEHLED ETIKET</span>
+          <div class="document-title-line">
+            <strong id="fileName">Bez souboru</strong>
+            <span id="dirtyLabel">—</span>
+          </div>
+        </div>
       </div>
       <div class="info-items">
-        <span id="rowCount">0 datových řádků</span>
-        <span id="columnCount">9 sloupců</span>
-        <span id="encodingInfo">Kódování: —</span>
+        <span hidden id="rowCount">0 datových řádků</span>
+        <span hidden id="columnCount">9 sloupců</span>
+        <span hidden id="encodingInfo">Kódování: —</span>
         <button class="issue-button" id="nextInvalidButton" type="button" disabled>
           <span class="issue-dot" aria-hidden="true"></span>
           <span id="invalidSummary">0 popisů nad limitem</span>
@@ -62,21 +75,17 @@
         <div class="file-illustration" aria-hidden="true">
           <span>CSV</span>
         </div>
-        <h2>Načítám hlavní CSV…</h2>
-        <p>Aplikace automaticky otevírá pevný soubor <strong>PP-Masterfile-Labels.csv</strong> napojený na InDesign Data Merge.</p>
-        <button class="button primary large" id="welcomeOpenButton" type="button">Načíst znovu</button>
-        <p class="drop-hint">Jiné CSV v tomto editoru otevřít nelze.</p>
-        <div class="format-note">
-          Výstup: <strong>UTF-16LE</strong><span>•</span><strong>BOM</strong><span>•</span><strong>CRLF</strong>
-        </div>
+        <h2>Otevírám přehled etiket…</h2>
+        <p>Za chvíli budete mít všechny kávy a jejich etikety připravené k úpravě na jednom místě.</p>
+        <button class="button primary large" id="welcomeOpenButton" type="button">Zkusit znovu</button>
       </section>
 
       <section class="error-card" id="errorCard" hidden aria-live="polite">
         <div class="error-icon" aria-hidden="true">!</div>
         <h2 id="errorTitle">CSV nemá očekávanou strukturu</h2>
-        <p>Tabulka nebyla otevřena, aby nedošlo k posunutí dat. Opravte zdrojový soubor a otevřete ho znovu.</p>
+        <p>Přehled jsem pro jistotu neotevřel, aby se data neposunula. Zkontrolujte pracovní soubor a zkuste to znovu.</p>
         <div id="errorDetails" class="error-details"></div>
-        <button class="button" id="errorOpenButton" type="button">Načíst znovu</button>
+        <button class="button" id="errorOpenButton" type="button">Zkusit znovu</button>
       </section>
 
       <section class="table-region" id="tableRegion" hidden aria-label="CSV tabulka">
@@ -107,7 +116,7 @@
 
     <footer class="statusbar" id="statusBar" aria-live="polite">
       <span id="statusMessage">Připraveno</span>
-      <span>Pevný soubor: <strong>PP-Masterfile-Labels.csv</strong></span>
+      <span class="local-note"><span aria-hidden="true">●</span> Změny se ukládají přímo do hlavního přehledu etiket</span>
     </footer>
   </div>
 

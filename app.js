@@ -8,6 +8,17 @@
   const DESCRIPTION_COLUMN = 6;
   const IMAGE_COLUMN = 8;
   const MAX_DESCRIPTION = 210;
+  const DISPLAY_HEADERS = [
+    "Název kávy",
+    "Lokalita",
+    "Druh",
+    "Zpracování",
+    "Původ",
+    "Chuť",
+    "Krátký popis",
+    "Web",
+    "Logo"
+  ];
 
   const elements = {};
   const ids = [
@@ -86,7 +97,7 @@
       updateControls();
       return;
     }
-    setStatus(`Načítám pevný soubor ${OUTPUT_NAME}…`);
+    setStatus("Otevírám hlavní přehled etiket…");
     try {
       const response = await fetch(`${API_URL}?t=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await responseError(response, loadFailureMessage(response.status)));
@@ -109,11 +120,11 @@
 
       if (!validation.valid) {
         showValidationError(validation);
-        setStatus("Soubor nebyl otevřen: neplatné hlavičky nebo počet sloupců.", "error");
+        setStatus("Přehled se nepodařilo bezpečně otevřít.", "error");
       } else {
         renderGrid();
         const filled = filledRowCount();
-        setStatus(`Načten ${OUTPUT_NAME}: ${filled} vyplněných řádků a ${rows.length - 1 - filled} volných.`, "success");
+        setStatus(`Přehled je připraven: ${filled} ${plural(filled, "vyplněná etiketa", "vyplněné etikety", "vyplněných etiket")}.`, "success");
       }
       updateControls();
     } catch (error) {
@@ -200,7 +211,7 @@
     duplicateLastButton.addEventListener("click", duplicateLastFilledRow);
     corner.appendChild(duplicateLastButton);
     row.appendChild(corner);
-    U.HEADERS.forEach(function (header) {
+    DISPLAY_HEADERS.forEach(function (header) {
       const th = document.createElement("th");
       th.scope = "col";
       th.textContent = header;
@@ -240,7 +251,7 @@
         editor.dataset.row = String(rowIndex);
         editor.dataset.column = String(columnIndex);
         editor.setAttribute("role", "textbox");
-        editor.setAttribute("aria-label", `${U.HEADERS[columnIndex]}, řádek ${rowIndex}`);
+        editor.setAttribute("aria-label", `${DISPLAY_HEADERS[columnIndex]}, řádek ${rowIndex}`);
         editor.textContent = value;
         td.appendChild(editor);
         if (columnIndex === DESCRIPTION_COLUMN) {
@@ -652,7 +663,7 @@
       if (!response.ok) throw new Error(await responseError(response, "Hlavní CSV se nepodařilo uložit."));
       state.encoding = "UTF-16LE s BOM";
       markSaved();
-      setStatus(`Soubor ${OUTPUT_NAME} byl aktualizován pro InDesign Data Merge.`, "success");
+      setStatus("Změny jsou uložené a připravené pro tisk.", "success");
     } catch (error) {
       setStatus(`Uložení se nezdařilo: ${error && error.message ? error.message : "neznámá chyba"}`, "error");
     }
@@ -720,7 +731,7 @@
     elements.undoButton.disabled = !valid || state.undo.length === 0;
     elements.redoButton.disabled = !valid || state.redo.length === 0;
     elements.fileName.textContent = state.fileName || "Bez souboru";
-    elements.fileSummary.textContent = valid ? `${filled} vyplněných · ${count - filled} volných · ${state.encoding}` : "Pevný lokální soubor pro InDesign";
+    elements.fileSummary.textContent = valid ? "Pevný přehled etiket pro tisk" : "Hlavní přehled etiket";
     elements.dirtyDot.classList.toggle("dirty", dirty);
     elements.dirtyLabel.textContent = valid ? (dirty ? "Neuložené změny" : "Uloženo") : "—";
     elements.rowCount.textContent = valid ? `${count} řádků (${filled} vyplněných)` : "0 datových řádků";
