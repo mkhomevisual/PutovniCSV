@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <title>PP CSV Editor – integrační test</title>
+  <style>
+    body { margin: 24px; font: 14px -apple-system, sans-serif; color: #20251f; }
+    iframe { width: 1280px; max-width: 100%; height: 720px; border: 1px solid #ccd2ca; }
+    .pass { color: #2d6b3f; }
+    .fail { color: #ad3434; }
+    li { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h1>Integrační test aplikace</h1>
+  <p id="summary">Spouštím…</p>
+  <ol id="results"></ol>
+  <iframe id="app" src="../index.html"></iframe>
+  <script src="../csv-utils.js"></script>
+  <script>
+    (function () {
+      "use strict";
+      const results = [];
+      const frame = document.getElementById("app");
+      const U = window.PPCsvUtils;
+
+      function assert(condition, message) {
+        if (!condition) throw new Error(message || "Podmínka neplatí");
+      }
+
+      function equal(actual, expected, message) {
+        if (actual !== expected) throw new Error(`${message || "Hodnoty se liší"}: ${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`);
+      }
+
+      function record(name, fn) {
+        try {
+          fn();
+          results.push({ name: name, pass: true });
+        } catch (error) {
+          results.push({ name: name, pass: false, error: error.message });
+          throw error;
+        }
+      }
+
+      function tick(ms) {
+        return new Promise(function (resolve) { setTimeout(resolve, ms || 0); });
+      }
+
+      async function waitFor(check, message) {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if (check()) return;
+          await tick(25);
+        }
+        throw new Error(message || "Časový limit testu vypršel");
+      }
+
+      function dispatchInput(win, element) {
+        element.dispatchEvent(new win.Event("input", { bubbles: true }));
+      }
+
+      async function run() {
+        if (!frame.contentDocument || frame.contentDocument.readyState !== "complete") {
+          await new Promise(function (resolve) { frame.addEventListener("load", resolve, { once: true }); });
+        }
+        const configResponse = await fetch("/api/config", { cache: "no-store" });
+        const config = await configResponse.json();
+        if (!config.testMode) throw new Error("Integrační test je z bezpečnostních důvodů povolen jen na izolovaném serveru s --test-mode.");
+        const win = frame.contentWindow;
+        const doc = frame.contentDocument;
+        win.confirm = function () { return true; };
+        await waitFor(function () { return doc.querySelectorAll("#gridBody tr").length === 50; }, "Pevný soubor se nenačetl");
+
+        record("Automatické načtení pevného UTF-16LE CSV", function () {
+          equal(doc.getElementById("encodingInfo").textContent, "Kódování: UTF-16LE s BOM");
+          equal(doc.getElementById("fileName").textContent, "PP-Masterfile-Labels.csv");
+          equal(doc.getElementById("rowCount").textContent, "50 řádků (27 vyplněných)");
+          equal(doc.querySelectorAll("#gridBody tr").length, 50);
+        });
+        record("Editor nenabízí jiný soubor ani Uložit jako", function () {
+          assert(!doc.getElementById("fileInput"));
+          assert(!doc.getElementById("saveAsButton"));
+          assert(doc.getElementById("openButton").textContent.includes("Načíst znovu"));
+          assert(doc.querySelector(".duplicate-last-button"), "Chybí plus pro duplikaci posledního řádku");
+        });
+        const lastSourceName = doc.querySelector('.cell-editor[data-row="27"][data-column="0"]').textContent;
+        doc.querySelector(".duplicate-last-button").click();
+        record("Plus u číslování duplikuje poslední vyplněný řádek", function () {
+          equal(doc.querySelectorAll("#gridBody tr").length, 50);
+          equal(doc.querySelector('.cell-editor[data-row="28"][data-column="0"]').textContent, lastSourceName);
+          equal(doc.getElementById("rowCount").textContent, "50 řádků (28 vyplněných)");
+        });
+        doc.getElementById("undoButton").click();
+        record("Duplikaci posledního řádku lze vrátit", function () {
+          equal(doc.getElementById("rowCount").textContent, "50 řádků (27 vyplněných)");
+        });
+        record("Jeden červený popis délky 404", function () {
+          equal(doc.querySelectorAll("td.is-invalid").length, 1);
+          equal(doc.getElementById("invalidSummary").textContent, "1 popis nad limitem");
+          assert(doc.querySelector("td.is-invalid .char-count").textContent.includes("404 / 210"));
+        });
+
+        doc.getElementById("saveButton").click();
+        await tick();
+        record("Uložení s chybou zobrazí potvrzovací dialog", function () {
+          assert(doc.getElementById("limitDialog").open);
+          assert(doc.getElementById("limitRows").textContent.includes("Řádek 2: 404 / 210"));
+        });
+        doc.getElementById("limitDialog").close("cancel");
+        await tick();
+
+        const regular = doc.querySelector('.cell-editor[data-row="1"][data-column="0"]');
+        regular.focus();
+        regular.textContent = "Upravená káva";
+        dispatchInput(win, regular);
+        regular.blur();
+        record("Editace běžné buňky a indikace změn", function () {
+          equal(regular.textContent, "Upravená káva");
+          equal(doc.getElementById("dirtyLabel").textContent, "Neuložené změny");
+          assert(!doc.getElementById("undoButton").disabled);
+        });
+
+        const invalidDescription = doc.querySelector('td.is-invalid .cell-editor');
+        invalidDescription.focus();
+        invalidDescription.textContent = "Krátký opravený popis";
+        dispatchInput(win, invalidDescription);
+        invalidDescription.blur();
+        record("Živá kontrola popisu po editaci", function () {
+          equal(doc.querySelectorAll("td.is-invalid").length, 0);
+          equal(doc.getElementById("invalidSummary").textContent, "0 popisů nad limitem");
+          assert(invalidDescription.parentElement.querySelector(".char-count").textContent.endsWith("/ 210"));
+        });
+
+        doc.getElementById("undoButton").click();
+        record("Undo vrátí editaci popisu", function () {
+          equal(doc.querySelectorAll("td.is-invalid").length, 1);
+        });
+        doc.getElementById("redoButton").click();
+        record("Redo obnoví editaci popisu", function () {
+          equal(doc.querySelectorAll("td.is-invalid").length, 0);
+        });
+
+        const pasteTarget = doc.querySelector('.cell-editor[data-row="1"][data-column="2"]');
+        pasteTarget.focus();
+        const pasteEvent = new win.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(pasteEvent, "clipboardData", { value: { getData: function () { return "První\tDruhá\nTřetí\tČtvrtá"; } } });
+        pasteTarget.dispatchEvent(pasteEvent);
+        record("Vložení více buněk z TSV", function () {
+          equal(doc.querySelector('.cell-editor[data-row="1"][data-column="2"]').textContent, "První");
+          equal(doc.querySelector('.cell-editor[data-row="1"][data-column="3"]').textContent, "Druhá");
+          equal(doc.querySelector('.cell-editor[data-row="2"][data-column="2"]').textContent, "Třetí");
+        });
+
+        const search = doc.getElementById("searchInput");
+        search.value = "Ethiopia";
+        dispatchInput(win, search);
+        record("Globální vyhledávání filtruje řádky", function () {
+          const visible = doc.querySelectorAll("#gridBody tr:not(.search-hidden)").length;
+          assert(visible > 0 && visible < 50, `Neočekávaný počet: ${visible}`);
+        });
+        search.value = "";
+        dispatchInput(win, search);
+
+        doc.getElementById("addRowButton").click();
+        record("Přidání řádku", function () { equal(doc.querySelectorAll("#gridBody tr").length, 51); });
+        doc.getElementById("duplicateRowButton").click();
+        record("Duplikace řádku", function () { equal(doc.querySelectorAll("#gridBody tr").length, 52); });
+        doc.getElementById("deleteRowButton").click();
+        record("Odstranění řádku po potvrzení", function () { equal(doc.querySelectorAll("#gridBody tr").length, 51); });
+        doc.getElementById("undoButton").click();
+        record("Undo odstranění řádku", function () { equal(doc.querySelectorAll("#gridBody tr").length, 52); });
+        doc.getElementById("redoButton").click();
+        record("Redo odstranění řádku", function () { equal(doc.querySelectorAll("#gridBody tr").length, 51); });
+
+        const uploadButton = doc.querySelector('.upload-image-button[data-row="28"]');
+        uploadButton.click();
+        const logoFile = new win.File(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], "test-logo.svg", { type: "image/svg+xml" });
+        const logoTransfer = new win.DataTransfer();
+        logoTransfer.items.add(logoFile);
+        Object.defineProperty(doc.getElementById("imageFileInput"), "files", { value: logoTransfer.files, configurable: true });
+        doc.getElementById("imageFileInput").dispatchEvent(new win.Event("change", { bubbles: true }));
+        await waitFor(function () { return doc.getElementById("statusMessage").textContent.includes("byl zkopírován do logo"); }, "Soubor loga se nenahrál");
+        record("Nahrání zkopíruje logo a vyplní relativní cestu", function () {
+          equal(doc.querySelector('.cell-editor[data-row="28"][data-column="8"]').textContent, "logo/test-logo.svg");
+          equal(doc.getElementById("rowCount").textContent, "51 řádků (28 vyplněných)");
+        });
+
+        const freeRow = doc.querySelector('.cell-editor[data-row="28"][data-column="0"]');
+        freeRow.focus();
+        freeRow.textContent = "Nová položka ve volném řádku";
+        dispatchInput(win, freeRow);
+        freeRow.blur();
+        record("Předpřipravený volný řádek lze vyplnit", function () {
+          equal(doc.getElementById("rowCount").textContent, "51 řádků (28 vyplněných)");
+        });
+
+        doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true }));
+        await waitFor(function () { return doc.getElementById("statusMessage").textContent.includes("byl aktualizován"); }, "Uložení pevného souboru nedokončeno");
+        record("Cmd+S aktualizuje pevný soubor", function () {
+          assert(doc.getElementById("statusMessage").textContent.includes("PP-Masterfile-Labels.csv byl aktualizován"));
+          equal(doc.getElementById("dirtyLabel").textContent, "Uloženo");
+        });
+
+        const exportResponse = await fetch(`/api/csv?t=${Date.now()}`);
+        const exported = new Uint8Array(await exportResponse.arrayBuffer());
+        const decoded = U.decodeCsvBytes(exported);
+        const exportedRows = U.parseCsv(decoded.text);
+        record("Pevný soubor: BOM FF FE, UTF-16LE, CRLF a 9 sloupců", function () {
+          equal(exported[0], 0xff);
+          equal(exported[1], 0xfe);
+          equal(decoded.encoding, "UTF-16LE s BOM");
+          assert(decoded.text.includes("\r\n"));
+          assert(!/(^|[^\r])\n/.test(decoded.text.replace(/"(?:[^"]|"")*"/g, "")), "Záznamy obsahují osamocené LF");
+          assert(exportedRows.every(function (row) { return row.length === 9; }));
+          equal(exportedRows[0][8], "@images");
+          equal(exportedRows[1][0], "Upravená káva");
+          equal(exportedRows[28][0], "Nová položka ve volném řádku");
+          equal(exportedRows[28][8], "logo/test-logo.svg");
+          equal(exportedRows.length, 29, "Koncové prázdné řádky se nemají ukládat do Data Merge");
+        });
+
+        doc.getElementById("openButton").click();
+        await waitFor(function () {
+          return doc.getElementById("statusMessage").textContent.includes("28 vyplněných řádků");
+        }, "Aktualizovaný pevný soubor se znovu nenačetl");
+        record("Opětovné načtení pevného souboru zachová data a doplní 50 míst", function () {
+          equal(doc.getElementById("rowCount").textContent, "50 řádků (28 vyplněných)");
+          equal(doc.querySelector('.cell-editor[data-row="1"][data-column="0"]').textContent, "Upravená káva");
+          equal(doc.querySelector('.cell-editor[data-row="28"][data-column="0"]').textContent, "Nová položka ve volném řádku");
+          assert(doc.getElementById("gridBody").textContent.includes("Kašlanka"), "Česká diakritika chybí");
+        });
+      }
+
+      function finish() {
+        const list = document.getElementById("results");
+        results.forEach(function (result) {
+          const item = document.createElement("li");
+          item.className = result.pass ? "pass" : "fail";
+          item.textContent = result.pass ? `✓ ${result.name}` : `✗ ${result.name}: ${result.error}`;
+          list.appendChild(item);
+        });
+        const passed = results.filter(function (result) { return result.pass; }).length;
+        const summary = document.getElementById("summary");
+        summary.className = passed === results.length ? "pass" : "fail";
+        summary.textContent = `${passed}/${results.length} integračních testů prošlo.`;
+        document.title = `${passed === results.length ? "PASS" : "FAIL"} ${passed}/${results.length} – integrační test`;
+        document.body.dataset.testStatus = passed === results.length ? "passed" : "failed";
+      }
+
+      run().catch(function (error) {
+        if (!results.length || results[results.length - 1].pass) {
+          results.push({ name: "Běh integračního testu", pass: false, error: error.message });
+        }
+      }).then(finish);
+    })();
+  </script>
+</body>
+</html>

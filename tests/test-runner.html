@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PP CSV Editor – testy</title>
+  <style>
+    body { margin: 40px auto; padding: 0 24px; max-width: 900px; font: 15px -apple-system, sans-serif; color: #20251f; }
+    h1 { margin-bottom: 8px; }
+    #summary { padding: 14px; border-radius: 8px; background: #f1f3ef; }
+    li { margin: 7px 0; }
+    .pass { color: #2d6b3f; }
+    .fail { color: #ad3434; }
+    code { font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <h1>PP CSV Editor – automatické testy</h1>
+  <p id="summary">Testy se spouštějí…</p>
+  <ol id="results"></ol>
+  <script src="../csv-utils.js"></script>
+  <script src="tests.js"></script>
+</body>
+</html>
