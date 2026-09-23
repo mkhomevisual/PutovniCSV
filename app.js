@@ -34,7 +34,8 @@
     "saveSuccessDialog",
     "handoffButton", "handoffDialog", "selectHandoffFolderButton", "handoffProgress", "handoffPlan",
     "handoffFolderName", "handoffProfileName", "handoffFolderPath", "handoffMessage", "handoffActions", "handoffProductList",
-    "handoffPdfList", "handoffNotes", "closeHandoffButton", "processHandoffButton"
+    "handoffPdfList", "handoffPresentationSection", "handoffPresentationList", "handoffNotes",
+    "closeHandoffButton", "processHandoffButton"
   ];
 
   const state = {
@@ -742,6 +743,8 @@
     elements.handoffPlan.hidden = true;
     elements.handoffProductList.replaceChildren();
     elements.handoffPdfList.replaceChildren();
+    elements.handoffPresentationList.replaceChildren();
+    elements.handoffPresentationSection.hidden = true;
     elements.handoffNotes.replaceChildren();
     elements.handoffNotes.hidden = true;
     setHandoffBusy(false);
@@ -804,6 +807,7 @@
     elements.handoffFolderPath.textContent = plan.folder || "";
     elements.handoffProductList.replaceChildren();
     elements.handoffPdfList.replaceChildren();
+    elements.handoffPresentationList.replaceChildren();
 
     (plan.products || []).forEach(function (item) {
       const destination = baseName(item.destination);
@@ -824,10 +828,19 @@
         appendHandoffMapping(elements.handoffPdfList, sources, destination);
       }
     });
+    (plan.presentations || []).forEach(function (item) {
+      const destination = baseName(item.destination);
+      if (plan.status === "completed" || item.operation === "keep") {
+        appendHandoffResult(elements.handoffPresentationList, destination);
+      } else {
+        appendHandoffMapping(elements.handoffPresentationList, baseName(item.source), destination);
+      }
+    });
+    elements.handoffPresentationSection.hidden = !(plan.presentations || []).length;
 
     elements.handoffMessage.className = "handoff-message";
     if (plan.status === "ready") {
-      elements.handoffMessage.textContent = `Rozpoznáno: ${plan.profileLabel}. Po potvrzení vznikne ${plan.productCount} pojmenovaných PNG a ${plan.pdfOutputCount} výsledných PDF.`;
+      elements.handoffMessage.textContent = `Rozpoznáno: ${plan.profileLabel}. Po potvrzení vznikne ${plan.productCount} pojmenovaných PNG a ${plan.pdfOutputCount} výsledných PDF; potřebné podsložky se vytvoří automaticky.`;
     } else if (plan.status === "completed") {
       elements.handoffMessage.classList.add("is-success");
       elements.handoffMessage.textContent = plan.processed === false

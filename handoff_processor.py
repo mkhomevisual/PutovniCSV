@@ -69,7 +69,8 @@ PDF_GROUPS = COMPANY_PDF_GROUPS
 AUTOMATOR_JOIN = Path(
     "/System/Library/Automator/Combine PDF Pages.action/Contents/MacOS/join"
 )
-NUMBERED_STEM = re.compile(r"_(\d{2})$")
+NUMBERED_STEM = re.compile(r"_(\d{1,2})$")
+PRESENTATION_STEM = re.compile(r"_prezentace$", re.IGNORECASE)
 
 
 class HandoffError(RuntimeError):
@@ -89,10 +90,39 @@ def _numbered_files(directory: Path, extension: str) -> dict[str, list[Path]]:
             continue
         match = NUMBERED_STEM.search(entry.stem)
         if match:
-            matches.setdefault(match.group(1), []).append(entry)
+            matches.setdefault(match.group(1).zfill(2), []).append(entry)
     for entries in matches.values():
         entries.sort(key=lambda item: item.name.casefold())
     return matches
+
+
+def _merge_numbered_files(*groups: dict[str, list[Path]]) -> dict[str, list[Path]]:
+    merged: dict[str, list[Path]] = {}
+    for group in groups:
+        for number, paths in group.items():
+            merged.setdefault(number, []).extend(paths)
+    for entries in merged.values():
+        entries.sort(key=lambda item: item.as_posix().casefold())
+    return merged
+
+
+def _presentation_files(directory: Path) -> list[Path]:
+    if not directory.is_dir():
+        return []
+    return sorted(
+        (
+            entry
+            for entry in directory.iterdir()
+            if entry.is_file()
+            and entry.suffix.lower() == ".pdf"
+            and PRESENTATION_STEM.search(entry.stem)
+        ),
+        key=lambda item: item.name.casefold(),
+    )
+
+
+def _backup_name(prefix: str) -> str:
+    return f"_backup_{prefix}"
 
 
 def _pdf_numbers(profile: dict) -> set[str]:
@@ -227,9 +257,11 @@ def _error_plan(requested: Path, errors: list[str]) -> dict:
         "warnings": [],
         "products": [],
         "pdfs": [],
+        "presentations": [],
         "productCount": 0,
         "pdfOutputCount": 0,
         "pdfSourceCount": 0,
+        "presentationCount": 0,
         "merger": None,
     }
 
@@ -252,10 +284,13 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
 
     if not prefix or prefix in {".", ".."}:
         errors.append("Název vybrané složky nelze použít jako prefix souborů.")
-    if not products_dir.is_dir():
-        errors.append("Ve vybrané složce chybí podsložka Produkty.")
+    if products_dir.exists() and not products_dir.is_dir():
+        errors.append("Položka Produkty existuje, ale není to složka.")
 
-    product_matches = _numbered_files(products_dir, ".png")
+    product_matches = _merge_numbered_files(
+        _numbered_files(products_dir, ".png"),
+        _numbered_files(root, ".png"),
+    )
     pdf_matches = _numbered_files(root, ".pdf")
     detected = _detect_profile(root, prefix, product_matches, pdf_matches)
     if detected is None:
@@ -270,11 +305,11 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
     profile_key, profile = detected
     product_names: dict[str, str] = profile["products"]
     pdf_groups = profile["pdfs"]
-    if profile["expects_presentation"] and not (root / "Prezentace").is_dir():
-        warnings.append("Podsložka Prezentace nebyla nalezena; zpracování se jí nedotkne.")
 
     product_actions: list[dict] = []
     pdf_actions: list[dict] = []
+    presentation_actions: list[dict] = []
+    presentation_missing = False
 
     for number, output_label in product_names.items():
         matches = product_matches.get(number, [])
@@ -309,30 +344,96 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
             }
         )
 
+    if profile["expects_presentation"]:
+        presentations_dir = root / "Prezentace"
+        if presentations_dir.exists() and not presentations_dir.is_dir():
+            errors.append("Položka Prezentace existuje, ale není to složka.")
+        root_presentations = _presentation_files(root)
+        nested_presentations = sorted(
+            (
+                entry
+                for entry in presentations_dir.iterdir()
+                if entry.is_file() and entry.suffix.lower() == ".pdf"
+            ),
+            key=lambda item: item.name.casefold(),
+        ) if presentations_dir.is_dir() else []
+        if len(root_presentations) == 1 and not nested_presentations:
+            source = root_presentations[0]
+            destination = presentations_dir / f"{prefix}_Prezentace.pdf"
+            presentation_actions.append(
+                {
+                    "source": _relative_name(root, source),
+                    "destination": _relative_name(root, destination),
+                    "operation": "move",
+                }
+            )
+        elif not root_presentations and len(nested_presentations) == 1:
+            existing = nested_presentations[0]
+            presentation_actions.append(
+                {
+                    "source": None,
+                    "destination": _relative_name(root, existing),
+                    "operation": "keep",
+                }
+            )
+        elif not root_presentations and not nested_presentations:
+            presentation_missing = True
+        else:
+            found = root_presentations + nested_presentations
+            names = ", ".join(_relative_name(root, item) for item in found)
+            errors.append(f"Bylo nalezeno více PDF prezentací: {names}.")
+
     expected_product_numbers = set(product_names)
     expected_pdf_numbers = _pdf_numbers(profile)
     for number in sorted(set(product_matches) - expected_product_numbers):
-        errors.append(f"V Produkty je neočekávané PNG s číselnou příponou _{number}.")
+        errors.append(f"Bylo nalezeno neočekávané PNG s číselnou příponou _{number}.")
     for number in sorted(set(pdf_matches) - expected_pdf_numbers):
         errors.append(f"V kořenové složce je neočekávané PDF s číselnou příponou _{number}.")
 
     product_destinations = [root / item["destination"] for item in product_actions]
     pdf_destinations = [root / item["destination"] for item in pdf_actions]
-    backup_destination = root / f"{prefix}_Backup"
+    presentation_destinations = [
+        root / item["destination"]
+        for item in presentation_actions
+        if item["operation"] == "move"
+    ]
+    backup_destination = root / _backup_name(prefix)
     source_products_present = [item for item in product_actions if item["source"] is not None]
     source_pdfs_present = [source for item in pdf_actions for source in item["sources"] if source]
-    destinations_present = [path for path in product_destinations + pdf_destinations if path.exists()]
-
-    completed = (
+    source_presentations_present = [
+        item for item in presentation_actions if item["operation"] == "move"
+    ]
+    destinations_present = [
+        path
+        for path in product_destinations + pdf_destinations + presentation_destinations
+        if path.exists()
+    ]
+    core_outputs_completed = (
         len(source_products_present) == 0
         and len(source_pdfs_present) == 0
         and all(path.is_file() for path in product_destinations + pdf_destinations)
+    )
+    if presentation_missing:
+        if core_outputs_completed:
+            warnings.append("Hotová starší firemní složka neobsahuje PDF prezentaci.")
+        else:
+            errors.append("Chybí firemní PDF prezentace se suffixem _Prezentace.pdf.")
+    presentation_ready = (
+        not profile["expects_presentation"]
+        or len(presentation_actions) == 1
+        or (presentation_missing and core_outputs_completed)
+    )
+
+    completed = (
+        core_outputs_completed
+        and len(source_presentations_present) == 0
+        and presentation_ready
     )
 
     if not completed:
         for item in product_actions:
             if item["source"] is None:
-                errors.append(f"V Produkty chybí PNG s číselnou příponou _{item['number']}.")
+                errors.append(f"Chybí PNG s číselnou příponou _{item['number']}.")
         for item in pdf_actions:
             for number, source in zip(item["numbers"], item["sources"]):
                 if source is None:
@@ -346,7 +447,7 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
         if any(len(numbers) > 1 for numbers, _label in pdf_groups) and not available_pdf_mergers():
             errors.append("V systému není dostupný nástroj pro spojení PDF.")
 
-    for path in product_destinations + pdf_destinations:
+    for path in product_destinations + pdf_destinations + presentation_destinations:
         if len(path.name.encode("utf-8")) > 255:
             errors.append(f"Výsledný název je příliš dlouhý: {path.name}.")
 
@@ -369,9 +470,11 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
         "warnings": warnings,
         "products": product_actions,
         "pdfs": pdf_actions,
+        "presentations": presentation_actions,
         "productCount": len(product_actions),
         "pdfOutputCount": len(pdf_actions),
         "pdfSourceCount": len(expected_pdf_numbers),
+        "presentationCount": len(presentation_actions),
         "merger": mergers[0][0] if mergers else None,
     }
 
@@ -383,7 +486,7 @@ def process_handoff_folder(
     """Execute a validated plan, rolling file moves back on any failure."""
     plan = analyze_handoff_folder(folder)
     root = Path(plan["folder"])
-    backup = root / f"{plan['prefix']}_Backup"
+    backup = root / _backup_name(plan["prefix"])
     if plan["status"] == "completed":
         return {
             **plan,
@@ -394,8 +497,10 @@ def process_handoff_folder(
         raise HandoffError(" ".join(plan["errors"]))
 
     moved_products: list[tuple[Path, Path]] = []
+    moved_presentations: list[tuple[Path, Path]] = []
     moved_sources: list[tuple[Path, Path]] = []
     published_outputs: list[tuple[Path, Path]] = []
+    created_directories: list[Path] = []
     merger_names: list[str] = []
 
     try:
@@ -412,6 +517,10 @@ def process_handoff_folder(
                 if not _valid_pdf(staged_output):
                     raise HandoffError(f"Výsledný soubor {staged_output.name} není platné PDF.")
 
+            products_dir = root / "Produkty"
+            if not products_dir.exists():
+                products_dir.mkdir()
+                created_directories.append(products_dir)
             for item in plan["products"]:
                 source = root / item["source"]
                 destination = root / item["destination"]
@@ -419,6 +528,19 @@ def process_handoff_folder(
                     raise HandoffError(f"Cílový soubor mezitím vznikl: {destination.name}.")
                 source.replace(destination)
                 moved_products.append((source, destination))
+
+            for item in plan["presentations"]:
+                if item["operation"] != "move":
+                    continue
+                source = root / item["source"]
+                destination = root / item["destination"]
+                if not destination.parent.exists():
+                    destination.parent.mkdir()
+                    created_directories.append(destination.parent)
+                if destination.exists():
+                    raise HandoffError(f"Cílový soubor mezitím vznikl: {destination.name}.")
+                source.replace(destination)
+                moved_presentations.append((source, destination))
 
             backup.mkdir()
             for item in plan["pdfs"]:
@@ -441,9 +563,17 @@ def process_handoff_folder(
         for source, archived in reversed(moved_sources):
             if archived.exists():
                 archived.replace(source)
+        for source, destination in reversed(moved_presentations):
+            if destination.exists():
+                destination.replace(source)
         for source, destination in reversed(moved_products):
             if destination.exists():
                 destination.replace(source)
+        for directory in reversed(created_directories):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
         try:
             backup.rmdir()
         except OSError:

@@ -152,7 +152,7 @@
     <form method="dialog">
       <div class="modal-icon handoff-icon" aria-hidden="true">PDF</div>
       <h2>Připravit exporty</h2>
-      <p>Vyberte hlavní složku. Aplikace sama rozpozná firemní nabídku nebo lokální kávu podle 5–6 PNG v <strong>Produkty</strong> a 8–10 PDF v hlavní složce.</p>
+      <p>Vyberte hlavní složku. Soubory mohou být všechny pohromadě, nebo už rozdělené. Aplikace sama rozpozná firemní nabídku či lokální kávu a připraví výslednou strukturu.</p>
 
       <button class="button large handoff-picker" id="selectHandoffFolderButton" type="button">Vybrat složku…</button>
       <p class="handoff-progress" id="handoffProgress" hidden aria-live="polite"></p>
@@ -175,6 +175,10 @@
           <section>
             <h3>Tiskoviny · přejmenování a spojení</h3>
             <ul id="handoffPdfList"></ul>
+          </section>
+          <section id="handoffPresentationSection" hidden>
+            <h3>Prezentace · přesun</h3>
+            <ul id="handoffPresentationList"></ul>
           </section>
         </div>
         <div class="handoff-notes" id="handoffNotes" hidden></div>

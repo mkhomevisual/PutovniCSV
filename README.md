@@ -21,10 +21,10 @@ Koncové zcela prázdné pracovní řádky se při uložení oříznou, aby InDe
 
 ## Příprava exportů
 
-Tlačítko **Připravit exporty** otevře samostatné okno. Po kliknutí na **Vybrat složku…** zvolte hlavní složku, například `Holandia` nebo `Nicaraguer`. Název této složky se automaticky použije jako prefix všech výsledků; původní názvy exportů nejsou důležité, rozhodují číselné přípony. Aplikace sama rozpozná jeden ze dvou typů:
+Tlačítko **Připravit exporty** otevře samostatné okno. Po kliknutí na **Vybrat složku…** zvolte hlavní složku, například `Holandia` nebo `Nicaraguer`. Název této složky se automaticky použije jako prefix všech výsledků; původní názvy exportů nejsou důležité, rozhodují číselné přípony. Vstupní PNG mohou být už v `Produkty`, nebo volně v hlavní složce společně s PDF. Aplikace sama rozpozná jeden ze dvou typů:
 
-- **Firemní nabídka:** 6 PNG v `Produkty` a 10 PDF v hlavní složce.
-- **Lokální káva:** 5 PNG v `Produkty` a 8 PDF v hlavní složce.
+- **Firemní nabídka:** 6 PNG, 10 číslovaných PDF a jedno PDF se suffixem `_Prezentace.pdf`.
+- **Lokální káva:** 5 PNG a 8 PDF.
 
 Aplikace nejprve jen zkontroluje strukturu, zobrazí rozpoznaný typ a ukáže náhled všech změn. Soubory změní až tlačítko **Přejmenovat a spojit**.
 
@@ -32,7 +32,7 @@ Aplikace nejprve jen zkontroluje strukturu, zobrazí rozpoznaný typ a ukáže n
 
 - `Produkty/*_01.png` až `*_06.png` přejmenuje na `VandrBag_Front`, `VandrBag_Back`, `VandrDrip_Front`, `VandrDrip_Back`, `250g_Front` a `250g_Back`.
 - PDF `*_01.pdf` až `*_10.pdf` spojí v pořadí po dvojicích do `VandrDrip`, `75g`, `250g`, `150g` a `VandrBag`.
-- Složky `Prezentace` ani jejího obsahu se nedotýká.
+- Prezentaci z hlavní složky přejmenuje na `<název>_Prezentace.pdf` a přesune do automaticky vytvořené složky `Prezentace`. Pokud už prezentace ve složce `Prezentace` je, ponechá ji na místě.
 
 ### Lokální káva
 
@@ -42,8 +42,9 @@ Aplikace nejprve jen zkontroluje strukturu, zobrazí rozpoznaný typ a ukáže n
 
 Pro oba typy platí:
 
+- Pokud složka `Produkty` neexistuje, aplikace ji vytvoří a přesune do ní přejmenované PNG. Přijímá číslování `_01` i `_1`.
 - Existující výsledné soubory nikdy bez upozornění nepřepisuje.
-- Před změnou názvů nejprve připraví všechna výsledná PDF. Původní číslovaná PDF potom uloží do běžně viditelné složky `<název>_Backup`, například `Holandia_Backup` nebo `Nicaraguer_Backup`.
+- Před změnou názvů nejprve připraví všechna výsledná PDF. Původní číslovaná PDF potom uloží do složky `_backup_<název>`, například `_backup_Holandia` nebo `_backup_Nicaraguer`.
 
 Spojování PDF používá systémovou funkci macOS. Při zrušení výběru, chybějícím souboru, duplicitním čísle nebo kolizi názvu se nic nezmění.
 

@@ -82,7 +82,7 @@ end run
 
 
 class PPCsvHandler(SimpleHTTPRequestHandler):
-    server_version = "PPCsvEditor/3.1"
+    server_version = "PPCsvEditor/3.3"
     target_file: Path
     logo_dir: Path
     handoff_default_dir: Optional[Path] = None
