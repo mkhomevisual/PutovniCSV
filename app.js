@@ -4,6 +4,8 @@
   const U = window.PPCsvUtils;
   const OUTPUT_NAME = "PP-Masterfile-Labels.csv";
   const API_URL = "/api/csv";
+  const HANDOFF_SELECT_URL = "/api/handoff/select";
+  const HANDOFF_PROCESS_URL = "/api/handoff/process";
   const MIN_VISIBLE_ROWS = 50;
   const DESCRIPTION_COLUMN = 6;
   const IMAGE_COLUMN = 8;
@@ -28,7 +30,10 @@
     "columnCount", "encodingInfo", "nextInvalidButton", "invalidSummary", "rowTools",
     "selectedRowLabel", "duplicateRowButton", "deleteRowButton", "workspace", "welcomeCard",
     "errorCard", "errorTitle", "errorDetails", "tableRegion", "tableScroll", "dataGrid", "gridHead",
-    "gridBody", "noResults", "imageFileInput", "statusMessage", "statusBar", "limitDialog", "limitRows"
+    "gridBody", "noResults", "imageFileInput", "statusMessage", "statusBar", "limitDialog", "limitRows",
+    "handoffButton", "handoffDialog", "selectHandoffFolderButton", "handoffProgress", "handoffPlan",
+    "handoffFolderName", "handoffFolderPath", "handoffMessage", "handoffActions", "handoffProductList",
+    "handoffPdfList", "handoffNotes", "closeHandoffButton", "processHandoffButton"
   ];
 
   const state = {
@@ -42,7 +47,10 @@
     savedSignature: "",
     editSession: null,
     invalidCursor: -1,
-    pendingImageRow: null
+    pendingImageRow: null,
+    handoffToken: null,
+    handoffStatus: null,
+    handoffBusy: false
   };
 
   document.addEventListener("DOMContentLoaded", init);
@@ -74,6 +82,12 @@
     elements.gridBody.addEventListener("paste", onCellPaste);
     elements.gridBody.addEventListener("click", onGridClick);
     elements.imageFileInput.addEventListener("change", uploadSelectedImage);
+    elements.handoffButton.addEventListener("click", openHandoffDialog);
+    elements.selectHandoffFolderButton.addEventListener("click", selectHandoffFolder);
+    elements.processHandoffButton.addEventListener("click", processHandoffFolder);
+    elements.handoffDialog.addEventListener("cancel", function (event) {
+      if (state.handoffBusy) event.preventDefault();
+    });
     document.addEventListener("keydown", onGlobalKeydown);
     window.addEventListener("beforeunload", function (event) {
       if (isDirty()) {
@@ -697,6 +711,209 @@
       dialog.addEventListener("close", onClose);
       dialog.showModal();
     });
+  }
+
+  function openHandoffDialog() {
+    resetHandoffDialog();
+    if (typeof elements.handoffDialog.showModal === "function") {
+      elements.handoffDialog.showModal();
+    } else {
+      window.alert("Tato funkce vyžaduje aktuální verzi Safari nebo Chromu.");
+    }
+  }
+
+  function resetHandoffDialog() {
+    state.handoffToken = null;
+    state.handoffStatus = null;
+    state.handoffBusy = false;
+    elements.handoffProgress.hidden = true;
+    elements.handoffProgress.textContent = "";
+    elements.handoffProgress.className = "handoff-progress";
+    elements.handoffPlan.hidden = true;
+    elements.handoffProductList.replaceChildren();
+    elements.handoffPdfList.replaceChildren();
+    elements.handoffNotes.replaceChildren();
+    elements.handoffNotes.hidden = true;
+    setHandoffBusy(false);
+  }
+
+  function setHandoffBusy(busy) {
+    state.handoffBusy = busy;
+    elements.handoffButton.disabled = busy;
+    elements.selectHandoffFolderButton.disabled = busy;
+    elements.closeHandoffButton.disabled = busy;
+    elements.processHandoffButton.disabled = busy || state.handoffStatus !== "ready";
+  }
+
+  async function selectHandoffFolder() {
+    state.handoffToken = null;
+    state.handoffStatus = null;
+    setHandoffBusy(true);
+    elements.handoffPlan.hidden = true;
+    elements.handoffProgress.hidden = false;
+    elements.handoffProgress.className = "handoff-progress";
+    elements.handoffProgress.textContent = "Otevírám systémový výběr složky…";
+    try {
+      const response = await fetch(HANDOFF_SELECT_URL, { method: "POST" });
+      if (response.status === 204) {
+        elements.handoffProgress.hidden = true;
+        setStatus("Výběr složky byl zrušen.");
+        return;
+      }
+      if (!response.ok) throw new Error(await responseError(response, "Složku se nepodařilo zkontrolovat."));
+      const plan = await response.json();
+      state.handoffToken = plan.selectionToken || null;
+      renderHandoffPlan(plan);
+      if (plan.status === "ready") {
+        setStatus(`Složka ${plan.prefix} je připravená ke zpracování.`, "success");
+      } else if (plan.status === "completed") {
+        setStatus(`Složka ${plan.prefix} už je zpracovaná.`, "success");
+      } else {
+        setStatus(`Složku ${plan.prefix || ""} nelze zpracovat.`, "error");
+      }
+    } catch (error) {
+      state.handoffToken = null;
+      state.handoffStatus = "error";
+      elements.handoffProgress.hidden = false;
+      elements.handoffProgress.className = "handoff-progress is-error";
+      elements.handoffProgress.textContent = error && error.message ? error.message : "Složku se nepodařilo vybrat.";
+      setStatus(elements.handoffProgress.textContent, "error");
+    } finally {
+      setHandoffBusy(false);
+    }
+  }
+
+  function renderHandoffPlan(plan) {
+    state.handoffStatus = plan.status;
+    elements.handoffProgress.hidden = true;
+    elements.handoffPlan.hidden = false;
+    elements.handoffPlan.className = `handoff-plan is-${plan.status}`;
+    elements.handoffFolderName.textContent = plan.prefix || "Neznámá složka";
+    elements.handoffFolderPath.textContent = plan.folder || "";
+    elements.handoffProductList.replaceChildren();
+    elements.handoffPdfList.replaceChildren();
+
+    (plan.products || []).forEach(function (item) {
+      const destination = baseName(item.destination);
+      if (plan.status === "completed") {
+        appendHandoffResult(elements.handoffProductList, destination);
+      } else {
+        appendHandoffMapping(elements.handoffProductList, item.source ? baseName(item.source) : `…_${item.number}.png`, destination);
+      }
+    });
+    (plan.pdfs || []).forEach(function (item) {
+      const destination = baseName(item.destination);
+      if (plan.status === "completed") {
+        appendHandoffResult(elements.handoffPdfList, destination);
+      } else {
+        const sources = (item.sources || []).map(function (source, index) {
+          return source ? baseName(source) : `…_${item.numbers[index]}.pdf`;
+        }).join(" + ");
+        appendHandoffMapping(elements.handoffPdfList, sources, destination);
+      }
+    });
+
+    elements.handoffMessage.className = "handoff-message";
+    if (plan.status === "ready") {
+      elements.handoffMessage.textContent = "Kontrola proběhla v pořádku. Po potvrzení vznikne 6 pojmenovaných PNG a 5 spojených PDF.";
+    } else if (plan.status === "completed") {
+      elements.handoffMessage.classList.add("is-success");
+      elements.handoffMessage.textContent = plan.processed === false
+        ? "Tato složka už obsahuje všechny hotové výstupy. Nic jsem neměnil."
+        : "Hotovo. Produkty jsou přejmenované a tiskoviny spojené po dvojicích.";
+    } else {
+      elements.handoffMessage.classList.add("is-error");
+      elements.handoffMessage.textContent = "Složka nesplňuje očekávanou strukturu. Níže najdete, co je potřeba opravit.";
+    }
+
+    elements.handoffNotes.replaceChildren();
+    const errors = plan.errors || [];
+    const warnings = plan.warnings || [];
+    if (errors.length) appendHandoffNotes("Nelze pokračovat", errors, "error");
+    if (warnings.length) appendHandoffNotes("Upozornění", warnings, "warning");
+    if (plan.backupFolder) {
+      appendHandoffNotes(
+        "Záloha původních PDF",
+        [`Původních 10 číslovaných PDF zůstalo bezpečně uloženo ve složce ${plan.backupFolder}.`],
+        "success"
+      );
+    }
+    elements.handoffNotes.hidden = !elements.handoffNotes.childElementCount;
+    setHandoffBusy(false);
+  }
+
+  function appendHandoffMapping(list, source, destination) {
+    const item = document.createElement("li");
+    const before = document.createElement("span");
+    const arrow = document.createElement("span");
+    const after = document.createElement("strong");
+    before.textContent = source;
+    before.title = source;
+    arrow.textContent = "→";
+    arrow.setAttribute("aria-hidden", "true");
+    after.textContent = destination;
+    after.title = destination;
+    item.append(before, arrow, after);
+    list.appendChild(item);
+  }
+
+  function appendHandoffResult(list, destination) {
+    const item = document.createElement("li");
+    item.className = "is-result";
+    const check = document.createElement("span");
+    const name = document.createElement("strong");
+    check.className = "handoff-check";
+    check.textContent = "✓";
+    check.setAttribute("aria-hidden", "true");
+    name.textContent = destination;
+    item.append(check, name);
+    list.appendChild(item);
+  }
+
+  function appendHandoffNotes(title, messages, kind) {
+    const section = document.createElement("section");
+    const heading = document.createElement("strong");
+    const list = document.createElement("ul");
+    section.className = `handoff-note is-${kind}`;
+    heading.textContent = title;
+    messages.forEach(function (message) {
+      const item = document.createElement("li");
+      item.textContent = message;
+      list.appendChild(item);
+    });
+    section.append(heading, list);
+    elements.handoffNotes.appendChild(section);
+  }
+
+  function baseName(path) {
+    return String(path || "").split("/").pop();
+  }
+
+  async function processHandoffFolder() {
+    if (!state.handoffToken || state.handoffStatus !== "ready") return;
+    setHandoffBusy(true);
+    elements.handoffProgress.hidden = false;
+    elements.handoffProgress.className = "handoff-progress";
+    elements.handoffProgress.textContent = "Spojuji PDF a připravuji nové názvy…";
+    try {
+      const response = await fetch(HANDOFF_PROCESS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selectionToken: state.handoffToken })
+      });
+      if (!response.ok) throw new Error(await responseError(response, "Exporty se nepodařilo zpracovat."));
+      const result = await response.json();
+      state.handoffToken = null;
+      renderHandoffPlan(result);
+      setStatus(`Exporty ve složce ${result.prefix} jsou připravené.`, "success");
+    } catch (error) {
+      elements.handoffProgress.hidden = false;
+      elements.handoffProgress.className = "handoff-progress is-error";
+      elements.handoffProgress.textContent = error && error.message ? error.message : "Exporty se nepodařilo zpracovat.";
+      setStatus(elements.handoffProgress.textContent, "error");
+    } finally {
+      setHandoffBusy(false);
+    }
   }
 
   function markSaved() {

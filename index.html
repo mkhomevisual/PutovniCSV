@@ -37,6 +37,10 @@
           <button class="icon-button" id="undoButton" type="button" title="Zpět (⌘Z)" aria-label="Zpět" disabled>↶</button>
           <button class="icon-button" id="redoButton" type="button" title="Znovu (⌘⇧Z)" aria-label="Znovu" disabled>↷</button>
         </div>
+        <button class="button handoff-button" id="handoffButton" type="button">
+          <span aria-hidden="true">⇄</span>
+          <span>Připravit exporty</span>
+        </button>
         <button class="button primary" id="saveButton" type="button" disabled>Uložit změny</button>
       </div>
     </header>
@@ -129,6 +133,42 @@
       <div class="modal-actions">
         <button class="button" value="cancel">Vrátit se k opravě</button>
         <button class="button primary" value="continue">Uložit i tak</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="handoffDialog" class="modal handoff-modal">
+    <form method="dialog">
+      <div class="modal-icon handoff-icon" aria-hidden="true">PDF</div>
+      <h2>Připravit exporty nabídky</h2>
+      <p>Vyberte hlavní složku klienta. Aplikace zkontroluje 6 PNG v <strong>Produkty</strong> a 10 PDF v hlavní složce.</p>
+
+      <button class="button large handoff-picker" id="selectHandoffFolderButton" type="button">Vybrat složku…</button>
+      <p class="handoff-progress" id="handoffProgress" hidden aria-live="polite"></p>
+
+      <section class="handoff-plan" id="handoffPlan" hidden aria-live="polite">
+        <div class="handoff-folder">
+          <span>VYBRANÁ SLOŽKA</span>
+          <strong id="handoffFolderName"></strong>
+          <small id="handoffFolderPath"></small>
+        </div>
+        <div class="handoff-message" id="handoffMessage"></div>
+        <div class="handoff-columns" id="handoffActions">
+          <section>
+            <h3>Produkty · přejmenování</h3>
+            <ul id="handoffProductList"></ul>
+          </section>
+          <section>
+            <h3>Tiskoviny · spojení PDF</h3>
+            <ul id="handoffPdfList"></ul>
+          </section>
+        </div>
+        <div class="handoff-notes" id="handoffNotes" hidden></div>
+      </section>
+
+      <div class="modal-actions">
+        <button class="button" id="closeHandoffButton" value="close">Zavřít</button>
+        <button class="button primary" id="processHandoffButton" type="button" disabled>Přejmenovat a spojit</button>
       </div>
     </form>
   </dialog>

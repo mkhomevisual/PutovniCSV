@@ -1,6 +1,6 @@
 # PP CSV Editor
 
-Lokální editor jediného pevného CSV pro InDesign Data Merge. Data neopouštějí počítač.
+Lokální editor jediného pevného CSV pro InDesign Data Merge a příprava exportů firemních nabídek. Data neopouštějí počítač.
 
 ## Spuštění a práce
 
@@ -17,10 +17,25 @@ Zelené **+** v levém horním rohu tabulky duplikuje poslední vyplněný řád
 
 Koncové zcela prázdné pracovní řádky se při uložení oříznou, aby InDesign Data Merge nevytvářel prázdné záznamy. Při dalším načtení je editor znovu doplní do minimálního počtu 50. Výstup je vždy UTF-16LE s BOM `FF FE`, CRLF mezi záznamy, přesnými 9 hlavičkami a korektním CSV escapováním.
 
+## Příprava exportů firemní nabídky
+
+Tlačítko **Připravit exporty** otevře samostatné okno. Po kliknutí na **Vybrat složku…** zvolte hlavní složku klienta, například `Holandia`. Název této složky se automaticky použije jako prefix všech výsledků; původní názvy exportů nejsou důležité, rozhodují číselné přípony.
+
+Aplikace nejprve jen zkontroluje strukturu a ukáže náhled všech změn. Soubory změní až tlačítko **Přejmenovat a spojit**.
+
+- `Produkty/*_01.png` až `*_06.png` přejmenuje na `VandrBag_Front`, `VandrBag_Back`, `VandrDrip_Front`, `VandrDrip_Back`, `250g_Front` a `250g_Back`.
+- PDF `*_01.pdf` až `*_10.pdf` spojí v pořadí po dvojicích do `VandrDrip`, `75g`, `250g`, `150g` a `VandrBag`.
+- Složky `Prezentace` ani jejího obsahu se nedotýká.
+- Existující výsledné soubory nikdy bez upozornění nepřepisuje.
+- Před změnou názvů nejprve připraví všech pět PDF. Původních deset číslovaných PDF potom uloží do běžně viditelné složky `<název klienta>_Backup` uvnitř složky klienta, například `Holandia_Backup`.
+
+Spojování PDF používá systémovou funkci macOS. Při zrušení výběru, chybějícím souboru, duplicitním čísle nebo kolizi názvu se nic nezmění.
+
 ## Testy
 
 - V terminálu: `node tests/node-tests.js`
 - Server a upload log: `python3 -B tests/server-tests.py`
+- Zpracování exportů: `python3 -B tests/handoff-tests.py`
 - V prohlížeči: k adrese vypsané v Terminálu přidejte `tests/test-runner.html`
 
 Integrační test UI je chráněný testovacím režimem serveru a nelze jej omylem spustit nad pracovním CSV. Fixture v `tests/fixtures/` je explicitní kopie dodaného referenčního souboru pro ověření 27 řádků, 9 sloupců a popisu délky 404.

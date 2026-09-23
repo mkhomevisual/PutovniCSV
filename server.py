@@ -9,13 +9,18 @@ import io
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
 from typing import Optional
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+
+from handoff_processor import HandoffError, analyze_handoff_folder, process_handoff_folder
 
 
 OUTPUT_NAME = "PP-Masterfile-Labels.csv"
@@ -33,12 +38,55 @@ HEADERS = [
 MAX_FILE_SIZE = 20 * 1024 * 1024
 MAX_LOGO_SIZE = 100 * 1024 * 1024
 WRITE_LOCK = threading.Lock()
+HANDOFF_LOCK = threading.Lock()
+
+
+def choose_handoff_folder(default_directory: Optional[Path] = None) -> Optional[Path]:
+    """Show the native macOS folder picker and return its selected directory."""
+    if sys.platform != "darwin":
+        raise HandoffError("Výběr složky je v této verzi aplikace dostupný na macOS.")
+    script = """
+on run argv
+activate
+try
+    if (count of argv) > 0 then
+        set startFolder to POSIX file (item 1 of argv) as alias
+        set selectedFolder to choose folder with prompt "Vyberte složku nabídky (např. Holandia)" default location startFolder
+    else
+        set selectedFolder to choose folder with prompt "Vyberte složku nabídky (např. Holandia)"
+    end if
+    return POSIX path of selectedFolder
+on error number -128
+    return ""
+end try
+end run
+"""
+    command = ["/usr/bin/osascript", "-e", script, "--"]
+    if default_directory is not None and default_directory.is_dir():
+        command.append(str(default_directory))
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise HandoffError(f"Systémový výběr složky se nepodařilo otevřít: {error}") from error
+    if completed.returncode != 0:
+        detail = completed.stderr.strip()
+        raise HandoffError(detail or "Systémový výběr složky selhal.")
+    selected = completed.stdout.strip().rstrip("/")
+    return Path(selected) if selected else None
 
 
 class PPCsvHandler(SimpleHTTPRequestHandler):
-    server_version = "PPCsvEditor/2.0"
+    server_version = "PPCsvEditor/3.0"
     target_file: Path
     logo_dir: Path
+    handoff_default_dir: Optional[Path] = None
+    handoff_selections: dict[str, Path] = {}
     test_mode = False
 
     def do_GET(self) -> None:
@@ -47,15 +95,30 @@ class PPCsvHandler(SimpleHTTPRequestHandler):
             self._send_csv()
             return
         if request_path == "/api/config":
-            self._send_json(200, {"testMode": self.test_mode, "file": OUTPUT_NAME, "logoFolder": "logo"})
+            self._send_json(
+                200,
+                {
+                    "testMode": self.test_mode,
+                    "file": OUTPUT_NAME,
+                    "logoFolder": "logo",
+                    "handoffProcessor": True,
+                },
+            )
             return
         super().do_GET()
 
     def do_POST(self) -> None:
-        if urlsplit(self.path).path != "/api/logo":
-            self._send_json(404, {"error": "Neznámý endpoint."})
+        request_path = urlsplit(self.path).path
+        if request_path == "/api/logo":
+            self._save_logo()
             return
-        self._save_logo()
+        if request_path == "/api/handoff/select":
+            self._select_handoff_folder()
+            return
+        if request_path == "/api/handoff/process":
+            self._process_handoff_folder()
+            return
+        self._send_json(404, {"error": "Neznámý endpoint."})
 
     def do_PUT(self) -> None:
         if urlsplit(self.path).path != "/api/csv":
@@ -198,6 +261,63 @@ class PPCsvHandler(SimpleHTTPRequestHandler):
 
         self._send_json(200, {"ok": True, "name": name, "path": f"logo/{name}", "bytes": length})
 
+    def _select_handoff_folder(self) -> None:
+        try:
+            selected = choose_handoff_folder(self.handoff_default_dir)
+            if selected is None:
+                self.send_response(204)
+                self.end_headers()
+                return
+            plan = analyze_handoff_folder(selected)
+            token = secrets.token_urlsafe(24)
+            with HANDOFF_LOCK:
+                if len(self.handoff_selections) >= 100:
+                    self.handoff_selections.clear()
+                self.handoff_selections[token] = selected.resolve()
+            self._send_json(200, {**plan, "selectionToken": token})
+        except HandoffError as error:
+            self._send_json(400, {"error": str(error)})
+        except OSError as error:
+            self._send_json(500, {"error": f"Složku nelze otevřít: {error}"})
+
+    def _process_handoff_folder(self) -> None:
+        if self.headers.get_content_type() != "application/json":
+            self._send_json(415, {"error": "Požadavek musí být ve formátu JSON."})
+            return
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length or "")
+        except ValueError:
+            self._send_json(411, {"error": "Chybí platná délka požadavku."})
+            return
+        if length < 2 or length > 4096:
+            self._send_json(413, {"error": "Požadavek má neplatnou velikost."})
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Požadavek neobsahuje platný JSON."})
+            return
+        token = payload.get("selectionToken") if isinstance(payload, dict) else None
+        if not isinstance(token, str) or not token:
+            self._send_json(400, {"error": "Chybí identifikátor vybrané složky."})
+            return
+        with HANDOFF_LOCK:
+            selected = self.handoff_selections.get(token)
+        if selected is None:
+            self._send_json(400, {"error": "Výběr složky už není platný. Vyberte ji znovu."})
+            return
+        try:
+            with WRITE_LOCK:
+                result = process_handoff_folder(selected)
+            with HANDOFF_LOCK:
+                self.handoff_selections.pop(token, None)
+            self._send_json(200, result)
+        except HandoffError as error:
+            self._send_json(400, {"error": str(error)})
+        except OSError as error:
+            self._send_json(500, {"error": f"Soubory nelze zpracovat: {error}"})
+
     @staticmethod
     def _validate_export(data: bytes) -> None:
         if not data.startswith(b"\xff\xfe"):
@@ -252,6 +372,11 @@ def main() -> None:
     )
     PPCsvHandler.target_file = target
     PPCsvHandler.logo_dir = logo_dir
+    preferred_handoff_dir = project_dir.parent / "Exports" / "Firemni_Nabidky"
+    PPCsvHandler.handoff_default_dir = (
+        preferred_handoff_dir if preferred_handoff_dir.is_dir() else project_dir.parent
+    )
+    PPCsvHandler.handoff_selections = {}
     PPCsvHandler.test_mode = args.test_mode
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     actual_port = server.server_address[1]

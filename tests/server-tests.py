@@ -20,8 +20,13 @@ sys.path.insert(0, str(PROJECT_DIR))
 from server import OUTPUT_NAME, PPCsvHandler  # noqa: E402
 
 
-def request(url: str, method: str = "GET", data: Optional[bytes] = None):
-    req = Request(url, method=method, data=data)
+def request(
+    url: str,
+    method: str = "GET",
+    data: Optional[bytes] = None,
+    headers: Optional[dict[str, str]] = None,
+):
+    req = Request(url, method=method, data=data, headers=headers or {})
     try:
         with urlopen(req, timeout=5) as response:
             return response.status, response.read()
@@ -40,6 +45,7 @@ def main() -> None:
 
         PPCsvHandler.target_file = target
         PPCsvHandler.logo_dir = logo_dir
+        PPCsvHandler.handoff_selections = {}
         PPCsvHandler.test_mode = True
         handler = lambda *args, **kwargs: PPCsvHandler(*args, directory=str(PROJECT_DIR), **kwargs)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -48,6 +54,10 @@ def main() -> None:
         base = f"http://127.0.0.1:{server.server_address[1]}"
 
         try:
+            status, body = request(f"{base}/api/config")
+            config = json.loads(body)
+            assert status == 200 and config["handoffProcessor"] is True
+
             status, csv_bytes = request(f"{base}/api/csv")
             assert status == 200 and csv_bytes == fixture.read_bytes()
 
@@ -69,6 +79,14 @@ def main() -> None:
             traversal_url = f"{base}/api/logo?{urlencode({'name': '../evil.svg'})}"
             status, _ = request(traversal_url, "POST", b"evil")
             assert status == 400 and not (temp / "evil.svg").exists()
+
+            status, body = request(
+                f"{base}/api/handoff/process",
+                "POST",
+                json.dumps({"selectionToken": "unknown"}).encode(),
+                {"Content-Type": "application/json"},
+            )
+            assert status == 400 and "není platný" in json.loads(body)["error"]
         finally:
             server.shutdown()
             server.server_close()
@@ -78,7 +96,8 @@ def main() -> None:
     print("✓ Upload ukládá soubor do izolované složky logo")
     print("✓ Konflikt vyžaduje potvrzené přepsání")
     print("✓ Nebezpečná cesta je odmítnuta")
-    print("4/4 serverových testů prošlo.")
+    print("✓ API exportů vyžaduje platný výběr složky")
+    print("5/5 serverových testů prošlo.")
 
 
 if __name__ == "__main__":

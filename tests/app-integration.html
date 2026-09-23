@@ -81,6 +81,8 @@
           assert(!doc.getElementById("saveAsButton"));
           assert(doc.getElementById("openButton").textContent.includes("Načíst znovu"));
           assert(doc.querySelector(".duplicate-last-button"), "Chybí plus pro duplikaci posledního řádku");
+          assert(doc.getElementById("handoffButton").textContent.includes("Připravit exporty"));
+          assert(doc.getElementById("handoffDialog"), "Chybí dialog pro zpracování exportů");
         });
         const lastSourceName = doc.querySelector('.cell-editor[data-row="27"][data-column="0"]').textContent;
         doc.querySelector(".duplicate-last-button").click();
