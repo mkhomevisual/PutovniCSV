@@ -31,8 +31,9 @@
     "selectedRowLabel", "duplicateRowButton", "deleteRowButton", "workspace", "welcomeCard",
     "errorCard", "errorTitle", "errorDetails", "tableRegion", "tableScroll", "dataGrid", "gridHead",
     "gridBody", "noResults", "imageFileInput", "statusMessage", "statusBar", "limitDialog", "limitRows",
+    "saveSuccessDialog",
     "handoffButton", "handoffDialog", "selectHandoffFolderButton", "handoffProgress", "handoffPlan",
-    "handoffFolderName", "handoffFolderPath", "handoffMessage", "handoffActions", "handoffProductList",
+    "handoffFolderName", "handoffProfileName", "handoffFolderPath", "handoffMessage", "handoffActions", "handoffProductList",
     "handoffPdfList", "handoffNotes", "closeHandoffButton", "processHandoffButton"
   ];
 
@@ -677,7 +678,8 @@
       if (!response.ok) throw new Error(await responseError(response, "Hlavní CSV se nepodařilo uložit."));
       state.encoding = "UTF-16LE s BOM";
       markSaved();
-      setStatus("Změny jsou uložené a připravené pro tisk.", "success");
+      setStatus(`${OUTPUT_NAME} byl aktualizován.`, "success");
+      showSaveSuccess();
     } catch (error) {
       setStatus(`Uložení se nezdařilo: ${error && error.message ? error.message : "neznámá chyba"}`, "error");
     }
@@ -711,6 +713,14 @@
       dialog.addEventListener("close", onClose);
       dialog.showModal();
     });
+  }
+
+  function showSaveSuccess() {
+    if (typeof elements.saveSuccessDialog.showModal === "function") {
+      if (!elements.saveSuccessDialog.open) elements.saveSuccessDialog.showModal();
+    } else {
+      window.alert("Změny byly uloženy.");
+    }
   }
 
   function openHandoffDialog() {
@@ -789,6 +799,8 @@
     elements.handoffPlan.hidden = false;
     elements.handoffPlan.className = `handoff-plan is-${plan.status}`;
     elements.handoffFolderName.textContent = plan.prefix || "Neznámá složka";
+    elements.handoffProfileName.textContent = plan.profileLabel || "Typ nerozpoznán";
+    elements.handoffProfileName.hidden = !plan.profileLabel;
     elements.handoffFolderPath.textContent = plan.folder || "";
     elements.handoffProductList.replaceChildren();
     elements.handoffPdfList.replaceChildren();
@@ -815,12 +827,12 @@
 
     elements.handoffMessage.className = "handoff-message";
     if (plan.status === "ready") {
-      elements.handoffMessage.textContent = "Kontrola proběhla v pořádku. Po potvrzení vznikne 6 pojmenovaných PNG a 5 spojených PDF.";
+      elements.handoffMessage.textContent = `Rozpoznáno: ${plan.profileLabel}. Po potvrzení vznikne ${plan.productCount} pojmenovaných PNG a ${plan.pdfOutputCount} výsledných PDF.`;
     } else if (plan.status === "completed") {
       elements.handoffMessage.classList.add("is-success");
       elements.handoffMessage.textContent = plan.processed === false
         ? "Tato složka už obsahuje všechny hotové výstupy. Nic jsem neměnil."
-        : "Hotovo. Produkty jsou přejmenované a tiskoviny spojené po dvojicích.";
+        : "Hotovo. Produkty i tiskoviny jsou připravené pod výslednými názvy.";
     } else {
       elements.handoffMessage.classList.add("is-error");
       elements.handoffMessage.textContent = "Složka nesplňuje očekávanou strukturu. Níže najdete, co je potřeba opravit.";
@@ -834,7 +846,7 @@
     if (plan.backupFolder) {
       appendHandoffNotes(
         "Záloha původních PDF",
-        [`Původních 10 číslovaných PDF zůstalo bezpečně uloženo ve složce ${plan.backupFolder}.`],
+        [`Původních ${plan.pdfSourceCount} číslovaných PDF zůstalo bezpečně uloženo ve složce ${plan.backupFolder}.`],
         "success"
       );
     }
@@ -894,7 +906,7 @@
     setHandoffBusy(true);
     elements.handoffProgress.hidden = false;
     elements.handoffProgress.className = "handoff-progress";
-    elements.handoffProgress.textContent = "Spojuji PDF a připravuji nové názvy…";
+    elements.handoffProgress.textContent = "Přejmenovávám soubory a spojuji potřebná PDF…";
     try {
       const response = await fetch(HANDOFF_PROCESS_URL, {
         method: "POST",

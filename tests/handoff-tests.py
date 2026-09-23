@@ -28,6 +28,17 @@ def create_export(parent: Path, name: str = "Klient Žluťoučký") -> Path:
     return root
 
 
+def create_local_export(parent: Path, name: str = "Nicaraguer") -> Path:
+    root = parent / name
+    products = root / "Produkty"
+    products.mkdir(parents=True)
+    for index in range(1, 6):
+        (products / f"lokalni-produkt_{index:02}.png").write_bytes(f"local-png-{index}".encode())
+    for index in range(1, 9):
+        (root / f"lokalni-tisk_{index:02}.pdf").write_bytes(f"%PDF-1.4\nlocal-pdf-{index}\n%%EOF".encode())
+    return root
+
+
 def fake_merge(sources, destination: Path) -> str:
     content = b"|".join(source.read_bytes() for source in sources)
     destination.write_bytes(b"%PDF-1.4\n" + content + b"\n%%EOF")
@@ -41,6 +52,7 @@ def main() -> None:
         with patch("handoff_processor.available_pdf_mergers", return_value=[("test merger", "test")]):
             plan = analyze_handoff_folder(root)
             assert plan["status"] == "ready", plan["errors"]
+            assert plan["profile"] == "company_offer"
             assert plan["prefix"] == "Klient Žluťoučký"
             assert plan["products"][0]["destination"] == "Produkty/Klient Žluťoučký_VandrBag_Front.png"
             assert plan["products"][5]["destination"] == "Produkty/Klient Žluťoučký_250g_Back.png"
@@ -81,6 +93,52 @@ def main() -> None:
             assert second_result["status"] == "completed"
             assert second_result["processed"] is False
 
+        local_root = create_local_export(temp)
+        with patch("handoff_processor.available_pdf_mergers", return_value=[("test merger", "test")]):
+            local_plan = analyze_handoff_folder(local_root)
+            assert local_plan["status"] == "ready", local_plan["errors"]
+            assert local_plan["profile"] == "local_coffee"
+            assert local_plan["profileLabel"] == "Lokální káva"
+            assert local_plan["warnings"] == []
+            assert local_plan["products"][0]["destination"] == "Produkty/Nicaraguer_VandrBag_Back.png"
+            assert local_plan["products"][1]["destination"] == "Produkty/Nicaraguer_VandrBag_Front.png"
+            assert local_plan["products"][4]["destination"] == "Produkty/Nicaraguer_Pytlik_250g.png"
+            assert local_plan["pdfs"][0]["destination"] == "Nicaraguer_250g.pdf"
+            assert local_plan["pdfs"][0]["operation"] == "rename"
+            assert local_plan["pdfs"][4]["destination"] == "Nicaraguer_VandrDrip.pdf"
+            assert local_plan["pdfs"][4]["operation"] == "merge"
+
+            local_result = process_handoff_folder(local_root, merge_pdf=fake_merge)
+            assert local_result["status"] == "completed"
+            assert local_result["processed"] is True
+            assert local_result["backupFolder"] == "Nicaraguer_Backup"
+            expected_local_products = {
+                "Nicaraguer_VandrBag_Back.png",
+                "Nicaraguer_VandrBag_Front.png",
+                "Nicaraguer_VandrDrip_Back.png",
+                "Nicaraguer_VandrDrip_Front.png",
+                "Nicaraguer_Pytlik_250g.png",
+            }
+            assert {item.name for item in (local_root / "Produkty").iterdir()} == expected_local_products
+            expected_local_pdfs = {
+                "Nicaraguer_250g.pdf",
+                "Nicaraguer_500g.pdf",
+                "Nicaraguer_1kg.pdf",
+                "Nicaraguer_Kolky.pdf",
+                "Nicaraguer_VandrDrip.pdf",
+                "Nicaraguer_VandrBag.pdf",
+            }
+            assert {item.name for item in local_root.glob("*.pdf")} == expected_local_pdfs
+            assert b"local-pdf-1" in (local_root / "Nicaraguer_250g.pdf").read_bytes()
+            assert b"local-pdf-5" in (local_root / "Nicaraguer_VandrDrip.pdf").read_bytes()
+            assert b"local-pdf-6" in (local_root / "Nicaraguer_VandrDrip.pdf").read_bytes()
+            assert len(list((local_root / "Nicaraguer_Backup").glob("*.pdf"))) == 8
+
+            local_second_result = process_handoff_folder(local_root, merge_pdf=fake_merge)
+            assert local_second_result["status"] == "completed"
+            assert local_second_result["profile"] == "local_coffee"
+            assert local_second_result["processed"] is False
+
         collision_root = create_export(temp, "Kolize")
         (collision_root / "Kolize_75g.pdf").write_bytes(b"existing")
         with patch("handoff_processor.available_pdf_mergers", return_value=[("test merger", "test")]):
@@ -118,10 +176,11 @@ def main() -> None:
 
     print("✓ Číselné vstupy se mapují podle názvu vybrané složky")
     print("✓ Produkty se přejmenují a PDF se spojí ve správných dvojicích")
+    print("✓ Lokální káva se rozpozná a použije vlastní mapování 5 PNG + 8 PDF")
     print("✓ Původní PDF zůstávají ve viditelné složce <klient>_Backup a Prezentace se nemění")
     print("✓ Opakované spuštění pozná hotovou složku")
     print("✓ Kolize a chyba spojování nezpůsobí částečné přejmenování")
-    print("5/5 testů zpracování exportů prošlo.")
+    print("6/6 testů zpracování exportů prošlo.")
 
 
 if __name__ == "__main__":

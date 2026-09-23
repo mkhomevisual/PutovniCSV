@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate, rename and merge a numbered company-offer export folder."""
+"""Validate and prepare numbered company-offer or local-coffee exports."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import tempfile
 from typing import Callable, Iterable, Optional
 
 
-PRODUCT_NAMES = {
+COMPANY_PRODUCT_NAMES = {
     "01": "VandrBag_Front",
     "02": "VandrBag_Back",
     "03": "VandrDrip_Front",
@@ -22,13 +22,49 @@ PRODUCT_NAMES = {
     "06": "250g_Back",
 }
 
-PDF_GROUPS = (
+COMPANY_PDF_GROUPS = (
     (("01", "02"), "VandrDrip"),
     (("03", "04"), "75g"),
     (("05", "06"), "250g"),
     (("07", "08"), "150g"),
     (("09", "10"), "VandrBag"),
 )
+
+LOCAL_PRODUCT_NAMES = {
+    "01": "VandrBag_Back",
+    "02": "VandrBag_Front",
+    "03": "VandrDrip_Back",
+    "04": "VandrDrip_Front",
+    "05": "Pytlik_250g",
+}
+
+LOCAL_PDF_GROUPS = (
+    (("01",), "250g"),
+    (("02",), "500g"),
+    (("03",), "1kg"),
+    (("04",), "Kolky"),
+    (("05", "06"), "VandrDrip"),
+    (("07", "08"), "VandrBag"),
+)
+
+PROFILES = {
+    "company_offer": {
+        "label": "Firemní nabídka",
+        "products": COMPANY_PRODUCT_NAMES,
+        "pdfs": COMPANY_PDF_GROUPS,
+        "expects_presentation": True,
+    },
+    "local_coffee": {
+        "label": "Lokální káva",
+        "products": LOCAL_PRODUCT_NAMES,
+        "pdfs": LOCAL_PDF_GROUPS,
+        "expects_presentation": False,
+    },
+}
+
+# Backward-compatible names used by existing integrations.
+PRODUCT_NAMES = COMPANY_PRODUCT_NAMES
+PDF_GROUPS = COMPANY_PDF_GROUPS
 
 AUTOMATOR_JOIN = Path(
     "/System/Library/Automator/Combine PDF Pages.action/Contents/MacOS/join"
@@ -57,6 +93,55 @@ def _numbered_files(directory: Path, extension: str) -> dict[str, list[Path]]:
     for entries in matches.values():
         entries.sort(key=lambda item: item.name.casefold())
     return matches
+
+
+def _pdf_numbers(profile: dict) -> set[str]:
+    return {number for numbers, _label in profile["pdfs"] for number in numbers}
+
+
+def _profile_destinations(root: Path, prefix: str, profile: dict) -> tuple[list[Path], list[Path]]:
+    products = [
+        root / "Produkty" / f"{prefix}_{label}.png"
+        for label in profile["products"].values()
+    ]
+    pdfs = [root / f"{prefix}_{label}.pdf" for _numbers, label in profile["pdfs"]]
+    return products, pdfs
+
+
+def _detect_profile(
+    root: Path,
+    prefix: str,
+    product_matches: dict[str, list[Path]],
+    pdf_matches: dict[str, list[Path]],
+) -> Optional[tuple[str, dict]]:
+    product_numbers = set(product_matches)
+    pdf_numbers = set(pdf_matches)
+    ranked: list[tuple[int, str, dict]] = []
+
+    for key, profile in PROFILES.items():
+        expected_products = set(profile["products"])
+        expected_pdfs = _pdf_numbers(profile)
+        product_destinations, pdf_destinations = _profile_destinations(root, prefix, profile)
+        output_matches = sum(path.is_file() for path in product_destinations + pdf_destinations)
+        unexpected = len(product_numbers - expected_products) + len(pdf_numbers - expected_pdfs)
+        source_matches = len(product_numbers & expected_products) + len(pdf_numbers & expected_pdfs)
+        score = source_matches + output_matches * 5 - unexpected * 20
+        if product_numbers == expected_products and pdf_numbers == expected_pdfs:
+            score += 100
+        if (
+            not product_numbers
+            and not pdf_numbers
+            and all(path.is_file() for path in product_destinations + pdf_destinations)
+        ):
+            score += 200
+        ranked.append((score, key, profile))
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    if not ranked or ranked[0][0] <= 0:
+        return None
+    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+        return None
+    return ranked[0][1], ranked[0][2]
 
 
 def available_pdf_mergers() -> list[tuple[str, object]]:
@@ -130,43 +215,68 @@ def merge_pdfs(sources: Iterable[Path], destination: Path) -> str:
     raise HandoffError("PDF se nepodařilo spojit (" + "; ".join(failures) + ").")
 
 
+def _error_plan(requested: Path, errors: list[str]) -> dict:
+    return {
+        "ok": False,
+        "status": "error",
+        "folder": str(requested),
+        "prefix": requested.name,
+        "profile": None,
+        "profileLabel": None,
+        "errors": errors,
+        "warnings": [],
+        "products": [],
+        "pdfs": [],
+        "productCount": 0,
+        "pdfOutputCount": 0,
+        "pdfSourceCount": 0,
+        "merger": None,
+    }
+
+
 def analyze_handoff_folder(folder: Path | str) -> dict:
     """Build a serializable, non-mutating plan for one selected folder."""
     requested = Path(folder).expanduser()
     try:
         root = requested.resolve(strict=True)
     except (OSError, RuntimeError):
-        return {
-            "ok": False,
-            "status": "error",
-            "folder": str(requested),
-            "prefix": requested.name,
-            "errors": ["Vybraná složka neexistuje nebo ji nelze otevřít."],
-            "warnings": [],
-            "products": [],
-            "pdfs": [],
-        }
+        return _error_plan(requested, ["Vybraná složka neexistuje nebo ji nelze otevřít."])
+
+    if not root.is_dir():
+        return _error_plan(root, ["Vybraná položka není složka."])
 
     errors: list[str] = []
     warnings: list[str] = []
     prefix = root.name
     products_dir = root / "Produkty"
 
-    if not root.is_dir():
-        errors.append("Vybraná položka není složka.")
     if not prefix or prefix in {".", ".."}:
         errors.append("Název vybrané složky nelze použít jako prefix souborů.")
     if not products_dir.is_dir():
         errors.append("Ve vybrané složce chybí podsložka Produkty.")
-    if not (root / "Prezentace").is_dir():
-        warnings.append("Podsložka Prezentace nebyla nalezena; zpracování se jí nedotkne.")
 
     product_matches = _numbered_files(products_dir, ".png")
     pdf_matches = _numbered_files(root, ".pdf")
+    detected = _detect_profile(root, prefix, product_matches, pdf_matches)
+    if detected is None:
+        errors.append(
+            "Nelze rozpoznat typ exportu. Očekávám firemní nabídku (6 PNG + 10 PDF) "
+            "nebo lokální kávu (5 PNG + 8 PDF)."
+        )
+        result = _error_plan(root, errors)
+        result["warnings"] = warnings
+        return result
+
+    profile_key, profile = detected
+    product_names: dict[str, str] = profile["products"]
+    pdf_groups = profile["pdfs"]
+    if profile["expects_presentation"] and not (root / "Prezentace").is_dir():
+        warnings.append("Podsložka Prezentace nebyla nalezena; zpracování se jí nedotkne.")
+
     product_actions: list[dict] = []
     pdf_actions: list[dict] = []
 
-    for number, output_label in PRODUCT_NAMES.items():
+    for number, output_label in product_names.items():
         matches = product_matches.get(number, [])
         destination = products_dir / f"{prefix}_{output_label}.png"
         source = matches[0] if len(matches) == 1 else None
@@ -181,7 +291,7 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
             names = ", ".join(item.name for item in matches)
             errors.append(f"Pro produkt {number} bylo nalezeno více PNG: {names}.")
 
-    for numbers, output_label in PDF_GROUPS:
+    for numbers, output_label in pdf_groups:
         sources: list[Optional[Path]] = []
         for number in numbers:
             matches = pdf_matches.get(number, [])
@@ -195,8 +305,16 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
                 "numbers": list(numbers),
                 "sources": [_relative_name(root, item) if item else None for item in sources],
                 "destination": _relative_name(root, destination),
+                "operation": "merge" if len(numbers) > 1 else "rename",
             }
         )
+
+    expected_product_numbers = set(product_names)
+    expected_pdf_numbers = _pdf_numbers(profile)
+    for number in sorted(set(product_matches) - expected_product_numbers):
+        errors.append(f"V Produkty je neočekávané PNG s číselnou příponou _{number}.")
+    for number in sorted(set(pdf_matches) - expected_pdf_numbers):
+        errors.append(f"V kořenové složce je neočekávané PDF s číselnou příponou _{number}.")
 
     product_destinations = [root / item["destination"] for item in product_actions]
     pdf_destinations = [root / item["destination"] for item in pdf_actions]
@@ -225,7 +343,7 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
             errors.append(f"Záložní složka už existuje: {backup_destination.name}.")
         if not os.access(root, os.W_OK) or (products_dir.is_dir() and not os.access(products_dir, os.W_OK)):
             errors.append("Do vybrané složky nebo do podsložky Produkty nelze zapisovat.")
-        if not available_pdf_mergers():
+        if any(len(numbers) > 1 for numbers, _label in pdf_groups) and not available_pdf_mergers():
             errors.append("V systému není dostupný nástroj pro spojení PDF.")
 
     for path in product_destinations + pdf_destinations:
@@ -245,10 +363,15 @@ def analyze_handoff_folder(folder: Path | str) -> dict:
         "status": status,
         "folder": str(root),
         "prefix": prefix,
+        "profile": profile_key,
+        "profileLabel": profile["label"],
         "errors": errors,
         "warnings": warnings,
         "products": product_actions,
         "pdfs": pdf_actions,
+        "productCount": len(product_actions),
+        "pdfOutputCount": len(pdf_actions),
+        "pdfSourceCount": len(expected_pdf_numbers),
         "merger": mergers[0][0] if mergers else None,
     }
 
@@ -259,16 +382,20 @@ def process_handoff_folder(
 ) -> dict:
     """Execute a validated plan, rolling file moves back on any failure."""
     plan = analyze_handoff_folder(folder)
+    root = Path(plan["folder"])
+    backup = root / f"{plan['prefix']}_Backup"
     if plan["status"] == "completed":
-        return {**plan, "processed": False, "backupFolder": None}
+        return {
+            **plan,
+            "processed": False,
+            "backupFolder": backup.name if backup.is_dir() else None,
+        }
     if plan["status"] != "ready":
         raise HandoffError(" ".join(plan["errors"]))
 
-    root = Path(plan["folder"])
     moved_products: list[tuple[Path, Path]] = []
     moved_sources: list[tuple[Path, Path]] = []
     published_outputs: list[tuple[Path, Path]] = []
-    backup = root / f"{plan['prefix']}_Backup"
     merger_names: list[str] = []
 
     try:
@@ -278,9 +405,12 @@ def process_handoff_folder(
             for item in plan["pdfs"]:
                 sources = [root / source for source in item["sources"]]
                 staged_output = staging / Path(item["destination"]).name
-                merger_names.append(merge_pdf(sources, staged_output))
+                if item["operation"] == "merge":
+                    merger_names.append(merge_pdf(sources, staged_output))
+                else:
+                    shutil.copy2(sources[0], staged_output)
                 if not _valid_pdf(staged_output):
-                    raise HandoffError(f"Spojený soubor {staged_output.name} není platné PDF.")
+                    raise HandoffError(f"Výsledný soubor {staged_output.name} není platné PDF.")
 
             for item in plan["products"]:
                 source = root / item["source"]
@@ -330,5 +460,5 @@ def process_handoff_folder(
         **result,
         "processed": True,
         "backupFolder": backup.name,
-        "merger": ", ".join(engines),
+        "merger": ", ".join(engines) if engines else None,
     }

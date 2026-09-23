@@ -51,9 +51,9 @@ activate
 try
     if (count of argv) > 0 then
         set startFolder to POSIX file (item 1 of argv) as alias
-        set selectedFolder to choose folder with prompt "Vyberte složku nabídky (např. Holandia)" default location startFolder
+        set selectedFolder to choose folder with prompt "Vyberte složku exportu (např. Holandia nebo Nicaraguer)" default location startFolder
     else
-        set selectedFolder to choose folder with prompt "Vyberte složku nabídky (např. Holandia)"
+        set selectedFolder to choose folder with prompt "Vyberte složku exportu (např. Holandia nebo Nicaraguer)"
     end if
     return POSIX path of selectedFolder
 on error number -128
@@ -82,7 +82,7 @@ end run
 
 
 class PPCsvHandler(SimpleHTTPRequestHandler):
-    server_version = "PPCsvEditor/3.0"
+    server_version = "PPCsvEditor/3.1"
     target_file: Path
     logo_dir: Path
     handoff_default_dir: Optional[Path] = None
@@ -372,7 +372,7 @@ def main() -> None:
     )
     PPCsvHandler.target_file = target
     PPCsvHandler.logo_dir = logo_dir
-    preferred_handoff_dir = project_dir.parent / "Exports" / "Firemni_Nabidky"
+    preferred_handoff_dir = project_dir.parent / "Exports"
     PPCsvHandler.handoff_default_dir = (
         preferred_handoff_dir if preferred_handoff_dir.is_dir() else project_dir.parent
     )

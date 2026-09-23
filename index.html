@@ -137,11 +137,22 @@
     </form>
   </dialog>
 
+  <dialog id="saveSuccessDialog" class="modal save-success-modal">
+    <form method="dialog">
+      <div class="modal-icon success" aria-hidden="true">✓</div>
+      <h2>Změny byly uloženy</h2>
+      <p>Hlavní přehled etiket je bezpečně aktualizovaný a připravený pro další práci.</p>
+      <div class="modal-actions">
+        <button class="button primary" value="close">Hotovo</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="handoffDialog" class="modal handoff-modal">
     <form method="dialog">
       <div class="modal-icon handoff-icon" aria-hidden="true">PDF</div>
-      <h2>Připravit exporty nabídky</h2>
-      <p>Vyberte hlavní složku klienta. Aplikace zkontroluje 6 PNG v <strong>Produkty</strong> a 10 PDF v hlavní složce.</p>
+      <h2>Připravit exporty</h2>
+      <p>Vyberte hlavní složku. Aplikace sama rozpozná firemní nabídku nebo lokální kávu podle 5–6 PNG v <strong>Produkty</strong> a 8–10 PDF v hlavní složce.</p>
 
       <button class="button large handoff-picker" id="selectHandoffFolderButton" type="button">Vybrat složku…</button>
       <p class="handoff-progress" id="handoffProgress" hidden aria-live="polite"></p>
@@ -149,7 +160,10 @@
       <section class="handoff-plan" id="handoffPlan" hidden aria-live="polite">
         <div class="handoff-folder">
           <span>VYBRANÁ SLOŽKA</span>
-          <strong id="handoffFolderName"></strong>
+          <div class="handoff-folder-title">
+            <strong id="handoffFolderName"></strong>
+            <span class="handoff-type" id="handoffProfileName"></span>
+          </div>
           <small id="handoffFolderPath"></small>
         </div>
         <div class="handoff-message" id="handoffMessage"></div>
@@ -159,7 +173,7 @@
             <ul id="handoffProductList"></ul>
           </section>
           <section>
-            <h3>Tiskoviny · spojení PDF</h3>
+            <h3>Tiskoviny · přejmenování a spojení</h3>
             <ul id="handoffPdfList"></ul>
           </section>
         </div>

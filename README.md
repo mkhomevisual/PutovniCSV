@@ -11,23 +11,39 @@ Lokální editor jediného pevného CSV pro InDesign Data Merge a příprava exp
 5. Klikněte na **Uložit CSV** nebo stiskněte `Cmd+S`. Aktualizuje se přímo tentýž pevný soubor – neotevírá se výběr názvu ani se nestahuje kopie.
 6. Server ukončíte v Terminálu klávesami `Ctrl+C`.
 
+Po úspěšném uložení aplikace zobrazí potvrzovací okno **Změny byly uloženy**.
+
 Zelené **+** v levém horním rohu tabulky duplikuje poslední vyplněný řádek a vloží kopii hned pod něj. V každé buňce sloupce `@images` je tlačítko **+ Nahrát**. Vybraný soubor se zkopíruje do složky `logo` uvnitř aplikace a do buňky se zapíše relativní cesta `logo/nazev.ext`. Při shodném názvu se aplikace před přepsáním zeptá.
 
 `index.html` nelze pro tento režim spouštět samostatně dvojklikem: bezpečnostní pravidla Safari i Chromia nedovolují stránce bez lokálního serveru automaticky přepisovat soubor na disku.
 
 Koncové zcela prázdné pracovní řádky se při uložení oříznou, aby InDesign Data Merge nevytvářel prázdné záznamy. Při dalším načtení je editor znovu doplní do minimálního počtu 50. Výstup je vždy UTF-16LE s BOM `FF FE`, CRLF mezi záznamy, přesnými 9 hlavičkami a korektním CSV escapováním.
 
-## Příprava exportů firemní nabídky
+## Příprava exportů
 
-Tlačítko **Připravit exporty** otevře samostatné okno. Po kliknutí na **Vybrat složku…** zvolte hlavní složku klienta, například `Holandia`. Název této složky se automaticky použije jako prefix všech výsledků; původní názvy exportů nejsou důležité, rozhodují číselné přípony.
+Tlačítko **Připravit exporty** otevře samostatné okno. Po kliknutí na **Vybrat složku…** zvolte hlavní složku, například `Holandia` nebo `Nicaraguer`. Název této složky se automaticky použije jako prefix všech výsledků; původní názvy exportů nejsou důležité, rozhodují číselné přípony. Aplikace sama rozpozná jeden ze dvou typů:
 
-Aplikace nejprve jen zkontroluje strukturu a ukáže náhled všech změn. Soubory změní až tlačítko **Přejmenovat a spojit**.
+- **Firemní nabídka:** 6 PNG v `Produkty` a 10 PDF v hlavní složce.
+- **Lokální káva:** 5 PNG v `Produkty` a 8 PDF v hlavní složce.
+
+Aplikace nejprve jen zkontroluje strukturu, zobrazí rozpoznaný typ a ukáže náhled všech změn. Soubory změní až tlačítko **Přejmenovat a spojit**.
+
+### Firemní nabídka
 
 - `Produkty/*_01.png` až `*_06.png` přejmenuje na `VandrBag_Front`, `VandrBag_Back`, `VandrDrip_Front`, `VandrDrip_Back`, `250g_Front` a `250g_Back`.
 - PDF `*_01.pdf` až `*_10.pdf` spojí v pořadí po dvojicích do `VandrDrip`, `75g`, `250g`, `150g` a `VandrBag`.
 - Složky `Prezentace` ani jejího obsahu se nedotýká.
+
+### Lokální káva
+
+- `Produkty/*_01.png` až `*_05.png` přejmenuje na `VandrBag_Back`, `VandrBag_Front`, `VandrDrip_Back`, `VandrDrip_Front` a `Pytlik_250g`.
+- PDF `*_01.pdf` až `*_04.pdf` přejmenuje na `250g`, `500g`, `1kg` a `Kolky`.
+- PDF `*_05.pdf` + `*_06.pdf` spojí do `VandrDrip`; `*_07.pdf` + `*_08.pdf` spojí do `VandrBag`.
+
+Pro oba typy platí:
+
 - Existující výsledné soubory nikdy bez upozornění nepřepisuje.
-- Před změnou názvů nejprve připraví všech pět PDF. Původních deset číslovaných PDF potom uloží do běžně viditelné složky `<název klienta>_Backup` uvnitř složky klienta, například `Holandia_Backup`.
+- Před změnou názvů nejprve připraví všechna výsledná PDF. Původní číslovaná PDF potom uloží do běžně viditelné složky `<název>_Backup`, například `Holandia_Backup` nebo `Nicaraguer_Backup`.
 
 Spojování PDF používá systémovou funkci macOS. Při zrušení výběru, chybějícím souboru, duplicitním čísle nebo kolizi názvu se nic nezmění.
 

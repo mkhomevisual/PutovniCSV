@@ -83,6 +83,7 @@
           assert(doc.querySelector(".duplicate-last-button"), "Chybí plus pro duplikaci posledního řádku");
           assert(doc.getElementById("handoffButton").textContent.includes("Připravit exporty"));
           assert(doc.getElementById("handoffDialog"), "Chybí dialog pro zpracování exportů");
+          assert(doc.getElementById("saveSuccessDialog"), "Chybí potvrzení úspěšného uložení");
         });
         const lastSourceName = doc.querySelector('.cell-editor[data-row="27"][data-column="0"]').textContent;
         doc.querySelector(".duplicate-last-button").click();
@@ -200,7 +201,10 @@
         record("Cmd+S aktualizuje pevný soubor", function () {
           assert(doc.getElementById("statusMessage").textContent.includes("PP-Masterfile-Labels.csv byl aktualizován"));
           equal(doc.getElementById("dirtyLabel").textContent, "Uloženo");
+          assert(doc.getElementById("saveSuccessDialog").open, "Po uložení se nezobrazilo potvrzení");
         });
+        doc.getElementById("saveSuccessDialog").close("close");
+        await tick();
 
         const exportResponse = await fetch(`/api/csv?t=${Date.now()}`);
         const exported = new Uint8Array(await exportResponse.arrayBuffer());
